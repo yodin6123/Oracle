@@ -3625,3 +3625,751 @@ employees 테이블에서 80번, 90번 부서에 근무하는 사원들만 아�
     from tbl_authorbook B1 join tbl_authorbook B2
     on B1.bookname = B2.bookname and B1.authorname != B2.authorname
     order by 1;
+
+
+    ----- **** MULTI (Table) JOIN(다중 테이블 조인) **** -----
+    --> 3개 이상의 테이블(뷰)을 가지고 조인하는 것이다.
+    /*
+        -----------------------------------------------------------------------
+         부서번호   부서명     국가명     부서주소    사원번호    사원명     기본급여
+        -----------------------------------------------------------------------
+        부서번호 => departments.department_id
+                => employees.department_id
+        부서번호 컬럼을 가지고 departments 테이블과 employees 테이블 사이에 조인조건절을 만들어 JOIN 할 수 있다.
+        
+        부서명 => departments.department_name
+        
+        국가명 => countries.country_name
+        
+        부서주소 => locations.street_address
+                   locations.city
+                   locations.state_province
+                   
+        사원번호 사원명 기본급여 => employees
+        
+    */
+    
+    select *
+    from employees;   -- E.department_id
+    
+    select *
+    from departments; -- D.department_id    D.location_id
+    
+    select *
+    from locations;   -- L.location_id  L.country_id
+    
+    select *
+    from countries;   -- C.country_id
+    
+    -- SQL 1992 CODE
+    select E.department_id AS 부서번호
+         , department_name AS 부서명
+         , country_name AS 국가명
+         , street_address || ' ' || city || ' ' || state_province AS 부서주소
+         , employee_id AS 사원번호
+         , first_name || ' ' || last_name AS 사원명
+         , salary AS 기본급여
+    from employees E , departments D , locations L , countries C
+    where E.department_id = D.department_id and
+          D.location_id = L.location_id and
+          L.country_id = C.country_id
+    order by 1;
+    
+    -- SQL 1999 CODE
+    select E.department_id AS 부서번호
+         , department_name AS 부서명
+         , country_name AS 국가명
+         , street_address || ' ' || city || ' ' || state_province AS 부서주소
+         , employee_id AS 사원번호
+         , first_name || ' ' || last_name AS 사원명
+         , salary AS 기본급여
+    from employees E join departments D  -- 한 번에 모두 join 할 수 없다, 두 개 먼저 join 하고, 추가로 계속 join 하는 방식.
+    on E.department_id = D.department_id
+    join locations L
+    on D.location_id = L.location_id
+    join countries C
+    on L.country_id = C.country_id
+    order by 1;
+    
+    -- SQL 1992 CODE null 값 출력
+    select E.department_id AS 부서번호
+         , department_name AS 부서명
+         , country_name AS 국가명
+         , street_address || ' ' || city || ' ' || state_province AS 부서주소
+         , employee_id AS 사원번호
+         , first_name || ' ' || last_name AS 사원명
+         , salary AS 기본급여
+    from employees E , departments D , locations L , countries C
+    where E.department_id = D.department_id(+) and
+          D.location_id = L.location_id(+) and
+          L.country_id = C.country_id(+)  -- (+)도 꼬리 물어 모두 붙여주어야 한다
+    order by 1;
+    
+    -- SQL 1999 CODE null 값 출력
+    select E.department_id AS 부서번호
+         , department_name AS 부서명
+         , country_name AS 국가명
+         , street_address || ' ' || city || ' ' || state_province AS 부서주소
+         , employee_id AS 사원번호
+         , first_name || ' ' || last_name AS 사원명
+         , salary AS 기본급여
+    from employees E left join departments D
+    on E.department_id = D.department_id
+    left join locations L
+    on D.location_id = L.location_id
+    left join countries C
+    on L.country_id = C.country_id  -- 마찬가지로 끝까지 left join 해주어야 한다
+    order by 1;
+    
+    select *
+    from tbl_taxindex;
+    
+    
+    --- [과제] ---   107명이 나와야 함!!!!
+  -------------------------------------------------------------------------------------------------------------------------------------
+   부서번호   부서명   부서주소  부서장성명  사원번호  사원명  연봉  연봉소득세액  부서내연봉평균차액   부서내연봉등수
+  -------------------------------------------------------------------------------------------------------------------------------------
+    e,d       d      d-l-c      d-e/name   e      e/name     e     e-tbl_tax     V(부서연봉평균)       테이블 속성 추가
+    -- 1
+    select A1.department_id AS 부서번호
+         , A1.department_name AS 부서명
+         , A1.department_address AS 부서주소
+         , A2.ename AS 부서장성명
+         , A1.employee_id AS 사원번호
+         , A1.ename AS 사원명
+         , A1.totsalary AS 연봉
+         , A1.salary_tax AS 연봉소득세액
+         , A1.diff_sal AS 부서내연봉평균차액
+         , rank() over(partition by A1.department_id order by A1.totsalary desc) AS 부서내연봉등수
+    from
+    (
+        select E.department_id
+             , department_name
+             , street_address || ' ' || city || ' ' || state_province AS DEPARTMENT_ADDRESS
+             , E.manager_id
+             , employee_id
+             , first_name || ' ' || last_name AS ENAME
+             , to_char(nvl(salary+(salary*commission_pct), salary)*12, '999,999') AS TOTSALARY
+             , to_char(nvl(salary+(salary*commission_pct), salary)*12 * taxpercent, '99,999.9') AS SALARY_TAX
+             , to_char(nvl(salary+(salary*commission_pct), salary)*12 - avgsal, '999,999') AS DIFF_SAL
+        from employees E left join departments D
+        on E.department_id = D.department_id
+        left join locations L
+        on D.location_id = L.location_id
+        left join countries C
+        on L.country_id = C.country_id
+        left join tbl_taxindex T
+        on nvl(salary+(salary*commission_pct), salary)*12 between lowerincome and highincome
+        left join (
+            select department_id, round(avg(nvl(salary+(salary*commission_pct), salary)*12)) AS AVGSAL
+            from employees
+            group by department_id
+        ) V
+        on E.department_id = V.department_id
+    ) A1
+    left join
+    (
+        select E.department_id
+             , department_name
+             , street_address || ' ' || city || ' ' || state_province AS DEPARTMENT_ADDRESS
+             , E.manager_id
+             , employee_id
+             , first_name || ' ' || last_name AS ENAME
+             , to_char(nvl(salary+(salary*commission_pct), salary)*12, '999,999') AS TOTSALARY
+             , to_char(nvl(salary+(salary*commission_pct), salary)*12 * taxpercent, '99,999.9') AS SALARY_TAX
+             , to_char(nvl(salary+(salary*commission_pct), salary)*12 - avgsal, '999,999') AS DIFF_SAL
+        from employees E left join departments D
+        on E.department_id = D.department_id
+        left join locations L
+        on D.location_id = L.location_id
+        left join countries C
+        on L.country_id = C.country_id
+        left join tbl_taxindex T
+        on nvl(salary+(salary*commission_pct), salary)*12 between lowerincome and highincome
+        left join (
+            select department_id, round(avg(nvl(salary+(salary*commission_pct), salary)*12)) AS AVGSAL
+            from employees
+            group by department_id
+        ) V
+        on E.department_id = V.department_id
+    ) A2
+    on A1.manager_id = A2.employee_id
+    order by 1,10;
+    -- 2
+    with V as (
+        select nvl(department_id, -9999) AS department_id, round(avg(nvl(salary+(salary*commission_pct), salary)*12)) AS AVGSAL
+        from employees
+        group by department_id
+    )
+    
+    select nvl(to_char(E1.department_id), '인턴') AS 부서번호
+         , nvl(department_name, ' ') AS 부서명
+         , street_address || ' ' || city || ' ' || state_province AS 부서주소
+         , E2.first_name || ' ' || E2.last_name AS 부서장성명
+         , E1.employee_id AS 사원번호
+         , E1.first_name || ' ' || E1.last_name AS 사원명
+         , to_char(nvl(E1.salary+(E1.salary*E1.commission_pct), E1.salary)*12, '999,999') AS 연봉
+         , to_char(nvl(E1.salary+(E1.salary*E1.commission_pct), E1.salary)*12 * taxpercent, '99,999.9') AS 연봉소득세액
+         , to_char(nvl(E1.salary+(E1.salary*E1.commission_pct), E1.salary)*12 - avgsal, '999,999') AS 부서내연봉평균차액
+         , rank() over(partition by E1.department_id order by to_char(nvl(E1.salary+(E1.salary*E1.commission_pct), E1.salary)*12, '999,999') desc) AS 부서내연봉등수
+    from employees E1 left join departments D
+    on E1.department_id = D.department_id
+    left join locations L
+    on D.location_id = L.location_id
+    left join countries C
+    on L.country_id = C.country_id
+    left join tbl_taxindex T
+    on nvl(salary+(salary*commission_pct), salary)*12 between lowerincome and highincome
+    left join V
+    on nvl(E1.department_id, -9999) = V.department_id
+    left join employees E2
+    on E1.manager_id = E2.employee_id
+    order by 1,10;
+    
+    
+    ----- **** SET Operator(SET 연산자) **** -----
+---- *** UNION / UNION ALL / INTERSECT / MINUS *** ---- 
+-- 면접시 JOIN 과 UNION 의 차이점에 대해서 말해보세요~~!! 
+==>  UNION 은 테이블(뷰)과 테이블(뷰)을 합쳐서 보여주는 것으로써,
+      이것은 행(ROW)과 행(ROW)을 합친 결과를 보여주는 것이다.
+
+    A = { a, x, b, e, g }
+
+    B = { c, d, a, b, y, k, m}    
+
+    A ∪ B = {a, b, c, d, e, g, k, m, x, y}  ==> UNION  -- 중복 제거, 결과가 정렬됨
+                                             {a, b, c, d, e, g, k, m, x, y}
+
+                                             / UNION ALL  -- 중복 제거 없고, 정렬도 없이 그대로 출력
+                                             {a, x, b, e, g, c, d, a, b, y, k, m} 
+
+    A ∩ B = {a,b}  ==> INTERSECT
+                       {a,b}
+
+    A - B = {x,e,g} ==> MINUS 
+                        {x,e,g}
+
+    B - A = {c,d,y,k,m} ==> MINUS 
+                            {c,d,y,k,m}
+                            
+    select *
+    from tbl_panmae;
+    
+    -- 현재가 2020년 8월이므로 저저번달은 2020년 6월이다.
+    -- 2020년 6월에 판매되어진 정보는 tbl_panmae_202006 이라는 테이블속으로 이관시키고자 한다.
+    -- 먼저 2020년 6월에 판매되어진 정보를 추출해야 한다.
+    create table tbl_panmae_202006  -- select 결과물을 테이블로 만든다.
+    as
+    select *
+    from tbl_panmae
+    where to_char(panmaedate, 'yyyymm') = to_char(add_months(sysdate, -2), 'yyyymm');
+    -- Table TBL_PANMAE_202006이(가) 생성되었습니다.
+    
+    select *
+    from tbl_panmae_202006;
+    
+    -- 현재가 2020년 8월이므로 저번달은 2020년 7월이다.
+    -- 2020년 7월에 판매되어진 정보는 tbl_panmae_202007 이라는 테이블속으로 이관시키고자 한다.
+    create table tbl_panmae_202007  -- select 결과물을 테이블로 만든다.
+    as
+    select *
+    from tbl_panmae
+    where to_char(panmaedate, 'yyyymm') = to_char(add_months(sysdate, -1), 'yyyymm');
+    -- Table TBL_PANMAE_202007이(가) 생성되었습니다.
+    
+    select *
+    from tbl_panmae_202007;
+    
+    -- 현재가 2020년 8월이므로 tbl_panmae 테이블에는
+    -- 2020년 8월에 판매되어진 정보만 남기고자 한다.
+    
+    -- tbl_panmae 테이블에서 이번달 판매가 아닌 행들만 모두 추출하세요.
+    select *
+    from tbl_panmae
+    where to_char(panmaedate, 'yyyymm') != to_char(sysdate, 'yyyymm');
+    
+    -- tbl_panmae 테이블에서 이번달 판매가 아닌 행들만 삭제하세요.
+    delete from tbl_panmae  -- 행 삭제
+    where to_char(panmaedate, 'yyyymm') != to_char(sysdate, 'yyyymm');  -- 삭제할 행 조건 지정
+    -- 9개 행 이(가) 삭제되었습니다.
+    
+    commit;
+    
+    select *
+    from tbl_panmae;  -- 이번달(2020년8월)에 판매된 정보만 보인다.
+    
+    select *
+    from tbl_panmae_202006;
+    
+    select *
+    from tbl_panmae_202007;
+    
+    select *
+    from tbl_panmae;
+    
+    -- 지금까지 판매되어진 제품별로 판매량의 합계를 추출하세요.
+    ----------------------
+     제품명    판매량의합계
+    ---------------------- 
+     감자깡        ...
+     고구마깡      ...
+     새우깡        ...
+     허니버터칩    ...
+     
+    select *
+    from tbl_panmae_202007
+    UNION
+    select *
+    from tbl_panmae_202006
+    UNION
+    select *
+    from tbl_panmae;
+    -- UNION 결과는 항상 첫 번째 컬럼에 대해 오름차순 정렬된다.
+    -- UNION 은 중복된 행이 있으면 중복을 제거하고 1개만 보여준다.
+    
+    select *
+    from tbl_panmae_202007
+    UNION ALL
+    select *
+    from tbl_panmae_202006
+    UNION ALL
+    select *
+    from tbl_panmae;
+    -- UNION ALL 은 UNION ALL 한 테이블의 순서대로 나올 뿐, 정렬은 없다.
+    -- UNION ALL 은 중복된 행이 있더라도 중복을 제거하지 않고 있는 그대로 합쳐서 보여줌, 속도가 더 빠르다(중복 검색 및 정렬을 하지 않기 때문에)ㄹ
+    
+    select jepumname AS 제품명
+         , sum(panmaesu) AS 판매량의합계
+    from
+    (
+    select *
+    from tbl_panmae_202007
+    UNION
+    select *
+    from tbl_panmae_202006
+    UNION
+    select *
+    from tbl_panmae
+    ) V
+    group by jepumname
+    order by 1;
+    
+    -- with 절
+    with V as (select *
+               from tbl_panmae_202007
+               UNION
+               select *
+               from tbl_panmae_202006
+               UNION
+               select *
+               from tbl_panmae)
+               
+    select jepumname AS 제품명
+         , sum(panmaesu) AS 판매량의합계
+    from V
+    group by jepumname
+    order by 1;
+    
+    -- [퀴즈] 아래와 같이 나오도록 하세요..
+    -- 2020년 6월 부터 현재까지 발생한 판매에 있어서 제품별, 판매년월별, 판매량의합계를 나타내세요.
+    --------------------------------
+     제품명    판매년월     판매량의합계
+    --------------------------------
+     감자깡	2020-06 	20
+     감자깡	2020-07	    15
+     감자깡	2020-08	    15
+     고구마깡	2020-07	    7
+     고구마깡	2020-08	    45
+     새우깡	2020-06	    38
+     새우깡	2020-07 	8
+     새우깡	2020-08 	30
+     허니버터칩	2020-08	65
+     전체      
+    --                   그룹함수
+    -- grouping sets
+    select decode(grouping(jepumname), 0, jepumname, '전체') AS 제품명
+         , decode(grouping(to_char(panmaedate, 'yyyy-mm')), 0, to_char(panmaedate, 'yyyy-mm'), ' ') AS 판매년월
+         , sum(panmaesu) AS 판매량의합계
+    from
+    (
+    select panmaedate, jepumnate, panmaesu
+    from tbl_panmae_202007
+    UNION
+    select panmaedate, jepumnate, panmaesu
+    from tbl_panmae_202006
+    UNION
+    select panmaedate, jepumnate, panmaesu
+    from tbl_panmae
+    ) V
+    group by grouping sets((jepumname, to_char(panmaedate, 'yyyy-mm')), ());
+    
+    -- rollup
+    select decode(grouping(jepumname), 0, jepumname, '전체') AS 제품명
+         , decode(grouping(to_char(panmaedate, 'yyyy-mm')), 0, to_char(panmaedate, 'yyyy-mm'), ' ') AS 판매년월
+         , sum(panmaesu) AS 판매량의합계
+    from
+    (
+    select panmaedate, jepumnate, panmaesu
+    from tbl_panmae_202007
+    UNION
+    select panmaedate, jepumnate, panmaesu
+    from tbl_panmae_202006
+    UNION
+    select panmaedate, jepumnate, panmaesu
+    from tbl_panmae
+    ) V
+    group by rollup(jepumname, to_char(panmaedate, 'yyyy-mm'));
+    
+    -- 2020년 6월 부터 현재까지 발생한 판매에 있어서 제품별, 판매년월별, 판매량의합계를 나타내세요.
+    ---------------------------------------------
+     제품명    판매년월     판매량의합계  퍼센티지(%)
+    ---------------------------------------------
+     감자깡	2020-06 	20
+     감자깡	2020-07	    15
+     감자깡	2020-08	    15
+     감자깡
+     고구마깡	2020-07	    7
+     고구마깡	2020-08	    45
+     고구마깡
+     새우깡	2020-06	    38
+     새우깡	2020-07 	8
+     새우깡	2020-08 	30
+     새우깡
+     허니버터칩	2020-08	65
+     허니버터칩
+     전체
+    
+    -- 판매수 총합은 같은 판매량이 제거되면 안되기 때문에 UNION ALL로 결합한 새로운 뷰 생성
+    
+    with V as (
+        select panmaedate, jepumnate, panmaesu
+        from tbl_panmae_202007
+        UNION  -- 실수로 두 데이터에 중복 데이터가 있을 경우 거르기 위해 / union all: 중복이 없음이 확실할 때는 성능에 더 좋다.
+        select panmaedate, jepumnate, panmaesu
+        from tbl_panmae_202006
+        UNION
+        select panmaedate, jepumnate, panmaesu
+        from tbl_panmae
+    )
+    
+    select decode(grouping(jepumname), 0, jepumname, '전체') AS 제품명
+         , decode(grouping(to_char(panmaedate, 'yyyy-mm')), 0, to_char(panmaedate, 'yyyy-mm'), ' ') AS 판매년월
+         , sum(panmaesu) AS 판매량의합계
+         , round(sum(panmaesu) / (select sum(panmaesu) from V) * 100, 1) AS "퍼센티지(%)"
+    from V
+    group by rollup(jepumname, to_char(panmaedate, 'yyyy-mm'));
+    
+    
+    ---- **** INTERSECT(교집합), MINUS(차집합) **** ----
+insert into tbl_panmae_202006(panmaedate, jepumname, panmaesu)
+values(to_date('2020-08-01', 'yyyy-mm-dd'), '허니버터칩', 10);
+
+insert into tbl_panmae_202007(panmaedate, jepumname, panmaesu)
+values(to_date('2020-08-01', 'yyyy-mm-dd'), '허니버터칩', 10);
+
+insert into tbl_panmae(panmaedate, jepumname, panmaesu)
+values(to_date('2020-08-01', 'yyyy-mm-dd'), '허니버터칩', 10);
+
+commit;
+
+    select *
+    from tbl_panmae_202007
+    UNION
+    select *
+    from tbl_panmae_202006
+    UNION
+    select *
+    from tbl_panmae;
+    
+    select *
+    from tbl_panmae_202007
+    UNION ALL
+    select *
+    from tbl_panmae_202006
+    UNION ALL
+    select *
+    from tbl_panmae;
+    
+    select *
+    from tbl_panmae_202007
+    INTERSECT
+    select *
+    from tbl_panmae_202006;
+    
+    select *
+    from tbl_panmae_202007
+    MINUS
+    select *
+    from tbl_panmae_202006;
+    
+    select *
+    from tbl_panmae_202006
+    MINUS
+    select *
+    from tbl_panmae_202007;
+
+-- tbl_panmae_202006 테이블과 tbl_panmae_202007 테이블에 중복된 행을 추출해서 삭제하세요.
+select panmaedate, jepumname, panmaesu
+from tbl_panmae_202006
+intersect
+select panmaedate, jepumname, panmaesu
+from tbl_panmae_202007;
+
+delete from tbl_panmae_202006
+where (panmaedate, jepumname, panmaesu) in(select panmaedate, jepumname, panmaesu  -- * 대신 직접 입력하여 가독성
+                                           from tbl_panmae_202006
+                                           intersect
+                                           select panmaedate, jepumname, panmaesu
+                                           from tbl_panmae_202007);
+-- 같은 방법으로
+delete from tbl_panmae_202007
+where (panmaedate, jepumname, panmaesu) in(select panmaedate, jepumname, panmaesu
+                                           from tbl_panmae_202006
+                                           intersect
+                                           select panmaedate, jepumname, panmaesu
+                                           from tbl_panmae_202007);
+-- 6월 달에서 데이터를 삭제했으므로 in 내부의 데이터도 없어져 7월 달에서는 삭제할 수 없다.
+-- 임시로 삭제할 데이터를 테이블로 만들어준다(삭제 이전에).
+create table tbl_temporary
+as
+select panmaedate, jepumname, panmaesu
+from tbl_panmae_202006
+intersect
+select panmaedate, jepumname, panmaesu
+from tbl_panmae_202007;
+
+delete from tbl_panmae_202007
+where (panmaedate, jepumname, panmaesu) in(select panmaedate, jepumname, panmaesu
+                                           from tbl_temporary);
+                                           
+commit;
+
+select *
+from tbl_panmae_202006;  -- 2020-08-01 허니버터칩 10 인 행이 없다.
+
+select *
+from tbl_panmae_202007;  -- 2020-08-01 허니버터칩 10 인 행이 없다.
+
+-- tbl_temporary 테이블 삭제하기
+select *
+from tbl_temporary;
+
+drop table tbl_temporary purge;
+-- Table TBL_TEMPORARY이(가) 삭제되었습니다.
+
+--------------------------------------------------------------------------------------------------------------------------------
+---- *** 동일한 테이블에 동일한 행이 들어가 있을 경우 중복된 행을 제거하기 *** ----
+insert into tbl_panmae_202006  -- select 결과를 insert 해줄 수 있다.
+select *
+from tbl_panmae_202006
+where jepumname = '감자깡';
+
+commit;
+
+select *
+from tbl_panmae_202006;
+
+insert into tbl_panmae_202006
+select *
+from tbl_panmae_202006
+where jepumname = '새우깡' and panmaedate = to_date('2020-06-18 14:16:28', 'yyyy-mm-dd hh24:mi:ss');
+
+commit;
+
+select jepumname, to_char(panmaedate, 'yyyy-mm-dd hh24:mi:ss'), panmaesu
+from tbl_panmae_202006;
+
+delete from tbl_panmae_202006
+where jepumname = '감자깡' and
+      to_char(panmaedate, 'yyyy-mm-dd hh24:mi:ss') = '2020-06-20 14:16:28' and
+      panmaesu = 20;
+-- 2개 행 이(가) 삭제되었습니다.
+-- 컬럼의 중복을 조건으로 delete 하면 모두 삭제된다.
+
+----- **** Pseudo Column(의사, 유사, 모조) 컬럼 **** ----- 한 테이블 내 중복 값 제거
+-----      rowid, rownum
+-----      rowid 는 오라클이 내부적으로 사용하기 위해 만든 id 값으로서 행에 대한 고유 id 값이다.
+select jepumname, panmaedate, panmaesu, count(*)
+from tbl_panmae_202006
+group by jepumname, panmaedate, panmaesu
+having count(*) > 1;
+
+select jepumname, panmaedate, panmaesu, rowid
+from tbl_panmae_202006
+where jepumname in ('새우깡', '감자깡');
+-- 중복을 찾는 서브쿼리문 작성
+select jepumname, panmaedate, panmaesu, rowid
+from tbl_panmae_202006
+where jepumname in (select distinct jepumname
+                    from tbl_panmae_202006
+                    where jepumname in('새우깡', '감자깡'));
+-- 제품명 뿐만 아니라 판매일, 판매수 모두가 같은가를 확인하는 조건으로 서브쿼리문 확장                    
+select jepumname, panmaedate, panmaesu, rowid
+from tbl_panmae_202006
+where (jepumname, panmaedate, panmaesu) in (select jepumname, panmaedate, panmaesu
+                                            from tbl_panmae_202006
+                                            group by jepumname, panmaedate, panmaesu
+                                            having count(*) > 1)  -- 제품명, 판매일, 판매수 모두가 같은 중복을 찾는 조건, 찾고자 하는 컬럼 모두를 괄호로 묶어야 한다.
+order by 1;  -- 중복된 값의 rowid를 확인
+
+delete from tbl_panmae_202006
+where rowid in('AAAE8NAAEAAAAGXAAB', 'AAAE8NAAEAAAAGXAAC');
+--              중복 감자깡 rowid      중복 새우깡 rowid
+-- 2개 행 이(가) 삭제되었습니다.
+
+-- rollback;  -- 취소
+
+commit;  -- 적용
+
+select jepumname, panmaedate, panmaesu
+from tbl_panmae_202006;
+
+
+select rownum, jepumname, panmaedate, panmaesu
+from tbl_panmae
+-- rownum 은 select 된 행의 행번호를 나타내고자 할 때 사용하는 Pseudo Column 이다.
+
+select boardno, subject, userid, registerday
+from tbl_board;
+
+-----------------------------------------------------------------------------
+ 번호 글번호 글제목                                             글쓴이 작성일자
+----------------------------------------------------------------------------- 
+ 1    6 	좋은 하루 되시고 건강하시고 부자되시고 늘 행복하세요	 leess	20/08/13
+ 2    5	    오늘도 좋은하루되세요	                             hongkd	20/08/13
+ 3    4 	기쁘고 감사함이 넘치는 좋은하루되세요 	             emojh	20/08/13
+ 4    3 	건강하세요	                                     leess	20/08/13
+ 5    1	    안녕하세요	                                     leess	20/08/13
+ 6    2	    반갑습니다	                                     eomjh	20/08/13
+ 
+select rownum, boardno, subject, userid, registerday
+from tbl_board
+order by boardno desc;
+/*
+-----------------------------------------------------------------------------
+ rownum, boardno, subject, userid, registerday
+-----------------------------------------------------------------------------
+ 6	     6	좋은 하루 되시고 건강하시고 부자되시고 늘 행복하세요	leess	20/08/13
+ 5	     5	오늘도 좋은하루되세요	hongkd	20/08/13
+ 4	     4	기쁘고 감사함이 넘치는 좋은하루되세요 	emojh	20/08/13
+ 3	     3	건강하세요	leess	20/08/13
+ 2	     2	반갑습니다	eomjh	20/08/13
+ 1	     1	안녕하세요	leess	20/08/13
+ -- rownum 기본값은 insert 된 순서대로 나온다.
+*/
+
+with V as(
+        select boardno, subject, userid, registerday
+        from tbl_board
+        order by boardno desc
+)
+
+select rownum, boardno, subject, userid, registerday
+from V;  -- rownum 을 따로 떼내 정렬된 테이블(뷰)에 순서대로 번호를 매기도록 한다.
+/*
+-----------------------------------------------------------------------------
+ rownum, boardno, subject, userid, registerday
+-----------------------------------------------------------------------------
+ 1	     6	좋은 하루 되시고 건강하시고 부자되시고 늘 행복하세요	leess	20/08/13
+ 2	     5	오늘도 좋은하루되세요	hongkd	20/08/13
+ 3	     4	기쁘고 감사함이 넘치는 좋은하루되세요 	emojh	20/08/13
+ 4	     3	건강하세요	leess	20/08/13
+ 5	     2	반갑습니다	eomjh	20/08/13
+ 6	     1	안녕하세요	leess	20/08/13
+ -- rownum 기본값은 insert 된 순서대로 나온다.
+*/
+
+-- 또는
+select row_number() over(order by boardno desc), boardno, subject, userid, registerday
+from tbl_board;
+
+
+-- 페이지 당 글을 2개씩 보여주고자 한다.
+-- 1페이지  rownum => 1~2  boardno => 6~5
+-- 2페이지  rownum => 3~4  boardno => 4~3
+-- 3페이지  rownum => 5~6  boardno => 2~1
+with V as(
+        select boardno, subject, userid, registerday
+        from tbl_board
+        order by boardno desc
+)
+
+select rownum, boardno, subject, userid, registerday
+from V
+where rownum between 3 and 4;  -- rownum 은 where 절에 바로 쓸 수 없다!!!!!
+                               -- 그러므로 inline view 를 사용해야만 올바르게 나온다.
+
+select boardno, subject, userid, registerday
+from 
+(
+    with V as(
+            select boardno, subject, userid, registerday
+            from tbl_board
+            order by boardno desc
+    )
+            
+    select rownum AS rno, boardno, subject, userid, registerday  -- rownum 말 자체를 where 절에 쓸 수 없기 때문에 AS 지정해야 한다.
+    from V
+) T
+where rno between 1 and 2;  --> 1페이지 내용물
+
+select boardno, subject, userid, registerday
+from 
+(
+    with V as(
+            select boardno, subject, userid, registerday
+            from tbl_board
+            order by boardno desc
+    )
+            
+    select rownum AS rno, boardno, subject, userid, registerday
+    from V
+) T
+where rno between 3 and 4;  --> 2페이지 내용물
+
+select boardno, subject, userid, registerday
+from 
+(
+    with V as(
+            select boardno, subject, userid, registerday
+            from tbl_board
+            order by boardno desc
+    )
+            
+    select rownum AS rno, boardno, subject, userid, registerday
+    from V
+) T
+where rno between 5 and 6;  --> 3페이지 내용물
+
+-- 또는
+select row_number() over(order by boardno desc), boardno, subject, userid, registerday
+from tbl_board
+where row_number() over(order by boardno desc) between 1 and 2;
+-- row_number() over(order by boardno desc) 은 where 절에 바로 쓸 수가 없다.
+
+with V as(
+        select row_number() over(order by boardno desc) AS rno, boardno, subject, userid, registerday
+        from tbl_board
+)
+
+select boardno, subject, userid, registerday
+from V
+where rno between 1 and 2;  --> 1페이지 내용물
+
+with V as(
+        select row_number() over(order by boardno desc) AS rno, boardno, subject, userid, registerday
+        from tbl_board
+)
+
+select boardno, subject, userid, registerday
+from V
+where rno between 3 and 4;  --> 2페이지 내용물
+
+with V as(
+        select row_number() over(order by boardno desc) AS rno, boardno, subject, userid, registerday
+        from tbl_board
+)
+
+select boardno, subject, userid, registerday
+from V
+where rno between 5 and 6;  --> 3페이지 내용물
