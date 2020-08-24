@@ -4839,6 +4839,29 @@ create database link bonjumlink
 connect to hr identified by cclass
 using 'BONJUM';
 -- Database link BONJUMLINK이(가) 생성되었습니다.
+/*
+  네트서비스명 BONJUM 은
+  C:\oraclexe\app\oracle\product\11.2.0\server\network\ADMIN\tnsnames.ora 에서 작성한다.
+*/
+
+-- 네트서비스명을 만들고 연결을 확인하자.
+-- 명령 프롬프트에서(cmd에서)
+-- C:\Users\sist>tnsping BONJUM 5
+/*
+OK (10 msec)
+OK (0 msec)
+OK (20 msec)
+OK (0 msec)
+OK (10 msec)
+*/
+
+-- 생성된 데이터베이스 링크를 조회해본다.
+select *
+from user_db_links;
+
+-- 생성된 데이터베이스 링크를 삭제해본다.
+drop database link BONJUMLINK;
+-- Database link BONJUMLINK이(가) 삭제되었습니다.
 
 select *
 from employees@bonjumlink;  -- 접속한 상대방
@@ -4907,8 +4930,53 @@ rollback;
 select *
 from tbl_emp_dept80;  -- DML문 이후 commit 하지 않아도 DDL문을 실행하면 자동 commit 되어 rollback 되지 않는다.
 
+select *
+from employees;
+
+--------------------------------------------------------------------------------------------------------------------------------
+update employees set first_name = 'Steven'
+                   , last_name = 'King'
+where employee_id = 100;
+
+commit;
+
+-- [퀴즈]데이터베이스 링크를 통해 깨진 데이터를 UPDATE 해보자.
+update employees set first_name = '몰라'
+                   , last_name = '또몰라'
+                   , salary = 2000;
+                   
+commit;
+
+create database link bonjumlink
+connect to hr identified by cclass
+using 'BONJUM';
+
+select *
+from tab@bonjumlink;  -- 생성되어 있는 테이블 확인(@데이터베이스 링크: 연결된 상대의 테이블 확인)
+
+select *
+from user_db_links;
+
+select *
+from employees@bonjumlink;
+
+select *
+from employees;
+
+update employees E set first_name = (select first_name
+                                     from employees@bonjumlink
+                                     where employee_id = E.employee_id)
+                     , last_name = (select last_name
+                                    from employees@bonjumlink
+                                    where employee_id = E.employee_id)
+                     , salary = (select salary
+                                    from employees@bonjumlink
+                                    where employee_id = E.employee_id);
+                                    
+commit;
+
 ----- *** 데이터 정의어(DDL == Data Definition Language) *** -----
-==> DDL : create, alter, truncate
+==> DDL : create, alter, drop, truncate
 --  DDL문을 실행하면 auto commit 된다.
 
 ----- *** 데이터 제어어(DCL == Data Control Language) *** -----
@@ -4930,3 +4998,426 @@ from tbl_emp_dept80;  -- DML문 이후 commit 하지 않아도 DDL문을 실행�
 -- 회원 테이블(회원아이디, 회원명, 포인트)
 --            leess     이순신  100 <-- update 회원테이블 set 포인트 = 포인트 + 10 <== 2.1. update 가 성공임을 알아채면 / 2.2. update 가 실패했다면
                                                                                 -- 3.1. 그제서야 commit 해줘야 한다./ 3.2. transaction 의 일부분이 실패했다면 rollback 해줘야 한다.
+                                                                                
+----- *** 특정 시점까지 rollback 을 할 수 있도록 만들어 보자 *** -----
+update employees set first_name = '몰라'
+where department_id = 50;
+-- 45개 행 이(가) 업데이트되었습니다.
+
+savepoint point_1;
+
+delete employees
+where department_id is null;
+-- 1 행 이(가) 삭제되었습니다.
+
+select *
+from employees
+where department_id = 50;
+
+select *
+from employees
+where department_id is null;
+-- 행이 없다.
+
+rollback to savepoint point_1;
+-- savepoint point_1 이 선언된 이후로 변경되어진 것만 rollback 시킨다.
+-- 그러므로 delete employees where department_id is null; 만 rollback 시킨다.
+
+select *
+from employees
+where department_id is null;
+-- 행이 있다.
+
+select first_name
+from employees
+where department_id = 50;
+
+rollback;
+-- commit 한 이후로 변경된 모든 것을 rollback 시킨다.
+
+select first_name
+from employees
+where department_id = 50;
+
+
+---- ==== 제약조건(Constraint)을 사용하여 테이블을 생성해 보겠습니다. ==== ----
+/*
+  >>> 제약조건(Constraint)의 종류 <<<
+  1. Primary Key 제약 (P) -- 테이블당 오로지 1개만 생성할 수 있다.
+                         -- 어떤 컬럼에 Primary Key 제약을 주면 그 컬럼은 자동적으로 NOT NULL 되어지고, 그 컬럼에는 중복된 값을 허락치 않고 오로지 고유한 값만 들어오게 된다.
+  2. Unique      제약 (U) -- 테이블당 여러개 생성할 수 있다.
+                         -- 어떤 컬럼에 Unique Key 제약을 주면 그 컬럼은 자동적으로 NULL이 허용되고, 그 컬럼에는 중복된 값을 허락치 않고 오로지 고유한 값만 들어오게 된다.
+  3. Foreign Key 제약 (R) -- 테이블당 여러개 생성할 수 있다.
+                         -- Foreign Key 제약으로 참고(Reference)받는 컬럼은 반드시 NOT NULL 이어야 하고, 중복된 값을 허락치 않는 고유한 값만 가져야 한다.
+  4. Check       제약 (C) -- 테이블당 여러개 생성할 수 있다.
+                         -- 어떤 컬럼에 입력(insert)되거나 수정(update) 시 특정 조건에 맞는 데이터만 적용시키고자 할 때 사용하는 것이다.
+  5. NOT NULL    제약 (C) -- 테이블당 여러개 생성할 수 있다.
+                         -- 특정 컬럼에 NOT NULL 제약을 주면 반드시 값을 주어야 한다는 뜻이다.
+*/
+
+-- ** 시퀀스(Sequence) 생성하기 ** --
+-- 시퀀스(Sequence)란? 쉽게 생각하면 은행에서 발급해주는 대기번호표와 비슷한 것이다.
+create sequence seq_yeyakno
+start with 1    -- 첫번째 출발은 1 부터 한다.
+increment by 1  -- 증가치값
+nomaxvalue      -- 최대값이 없는 무제한, 계속 증가시키겠다는 말
+nominvalue      -- 최소값이 없다.
+nocycle         -- 반복이 없음
+nocache;        -- 캐시가 없음(메모리에 기억시키지 않음)
+
+create sequence seq_yeyakno2
+start with 1    -- 첫번째 출발은 1 부터 한다.
+increment by 1  -- 증가치값
+maxvalue 5      -- 최대값이 5
+minvalue 2      -- 최소값이 2
+cycle           -- 반복을 함
+nocache;        -- 캐시가 없음(메모리에 기억시키지 않음)
+-- 오류발생!! 왜냐하면 minvalue 값은 start with 값과 같든지 아니면 start with 값보다 작아야 한다.
+
+drop sequence seq_yeyakno2;  -- 시퀀스 삭제하기
+
+create sequence seq_yeyakno2
+start with 2    -- 첫번째 출발은 2 부터 한다.
+increment by 1  -- 증가치값
+maxvalue 5      -- 최대값이 5
+minvalue 1      -- 최소값이 1. 최대값까지 도달한 이후에 그 다음에 입력되는 값은 minvalue 값인 1이다.
+cycle           -- 반복을 함
+nocache;        -- 캐시가 없음(메모리에 기억시키지 않음)
+
+-- ** 고객 테이블을 생성해보도록 하겠다. ** --
+-- (예: departments 테이블의 department_id 컬럼)
+
+-- 테이블 사이에 "부모", "자식" 관계에 있는 테이블을 삭제(제거)하고자 한다면
+-- 먼저 "자식 테이블"부터 삭제하고 그 다음에 "부모 테이블"을 삭제한다.
+-- 반대로 생성시에는 "부모 테이블" 부터 먼저 생성하고 그 다음에 "자식 테이블"을 생성한다.
+drop table tbl_yeyak purge;
+drop table tbl_gogek purge;
+
+create table tbl_gogek    -- foreign key에 의해서 참조를 받는 테이블을 "부모 테이블" 이라고 부른다.
+(gogekid    varchar2(30)  -- gogekid 컬럼은 tbl_yeyak 테이블의 gogekid 컬럼에 의해 참조를 받는 컬럼이므로 반드시 고유한 값만 들어와야하고, NOT NULL 이어야 한다.
+                          -- 그러므로 gogekid 컬럼에 Primary Key 제약을 준다.
+,gogekname  varchar2(30)
+,gogekphone varchar2(30)
+,gogekemail varchar2(30)
+,constraint PK_tbl_gogek_gogekid primary key(gogekid)
+,constraint PK_tbl_gogek_gogekemail primary key(gogekemail)
+-- Primary Key 테이블당 오로지 1개만 생성할 수 있으므로 오류발생!!
+);
+
+create table tbl_gogek    -- foreign key에 의해서 참조를 받는 테이블을 "부모 테이블" 이라고 부른다.
+(gogekid    varchar2(30)  -- gogekid 컬럼은 tbl_yeyak 테이블의 gogekid 컬럼에 의해 참조를 받는 컬럼이므로 반드시 고유한 값만 들어와야하고, NOT NULL 이어야 한다.
+                          -- 그러므로 gogekid 컬럼에 Primary Key 제약을 준다.
+,gogekname  varchar2(30)
+,gogekphone varchar2(30) not null
+,gogekemail varchar2(30)
+,constraint PK_tbl_gogek_gogekid primary key(gogekid)
+,constraint UQ_tbl_gogek_gogekphone unique(gogekphone)  -- 후보키(gogekphone 컬럼에 not null 을 주었으므로 primary key 와 동일한 효과를 가지게 된다.)
+,constraint UQ_tbl_gogek_gogekemail unique(gogekemail)  -- 후보키
+-- 제약조건명은 오라클서버 전체에서 고유해야만 한다.
+);
+
+insert into tbl_gogek(gogekid, gogekname, gogekphone, gogekemail)
+values('leess', '이순신', '010-3456-7890', 'leess@naver.com');
+
+insert into tbl_gogek(gogekid, gogekname, gogekphone, gogekemail)
+values('leess', '이삼순', '010-9898-1234', 'leess@daum.net');
+-- 입력 오류!! 중복된 gogekid 를 사용할 수 없다.
+
+insert into tbl_gogek(gogekid, gogekname, gogekphone, gogekemail)
+values('sunsin', '이순신', '010-9999-7777', 'sunsin@gmail.com');  -- 동명이인
+
+insert into tbl_gogek(gogekid, gogekname, gogekphone, gogekemail)
+values('eomjh', '엄정화', '010-2525-7878', 'eomjh@gmail.com');
+
+insert into tbl_gogek(gogekid, gogekname, gogekphone, gogekemail)
+values('chaew', '차은우', '010-9797-3333', null);
+
+insert into tbl_gogek(gogekid, gogekname, gogekphone)
+values('chakw', '차금우', '010-5555-3333');
+
+insert into tbl_gogek(gogekid, gogekname, gogekphone, gogekemail)
+values('chadw', '차동우', '010-8998-0090', 'eomjh@gmail.com');
+-- ORA-00001: unique constraint (HR.UQ_TBL_GOGEK_GOGEKEMAIL) violated
+-- 왜냐하면 gogekemail 컬럼에 UNIQUE 제약을 걸어두었으므로 중복된 이메일을 넣을 수 없다.
+-- 그런데 오라클은 UNIQUE 제약을 걸어둔 컬럼이 NULL 을 허락한다면 NULL 을 여러 번 넣을 수 있다.
+-- 하지만 Microsoft사 제품의 MS-SQL 은 UNIQUE 제약이 걸려 있는 컬럼이 NULL 을 허락한다면 NULL 은 오로지 1번만 들어온다.
+
+insert into tbl_gogek(gogekid, gogekname, gogekphone, gogekemail)
+values('chadw', '차동우', null, 'chadw@gmail.com');
+-- gogekphone 컬럼에는 null이 들어올수 없으므로 오류 발생
+
+insert into tbl_gogek(gogekid, gogekname, gogekphone, gogekemail)
+values('chadw', '차동우', '010-5555-3333', 'chadw@gmail.com');
+-- gogekphone 컬럼에는 중복된 전화번호를 넣을 수 없으므로 오류 발생
+
+insert into tbl_gogek(gogekid, gogekname, gogekphone, gogekemail)
+values('chadw', '차동우', '010-7777-0070', 'chadw@gmail.com');
+
+commit;
+
+select *
+from tbl_gogek;
+
+-- ** 예약을 받아주는 테이블을 생성해보도록 하겠다. ** --
+-- (예: employees 테이블의 department_id 컬럼)
+create table tbl_yeyak      -- foreign key가 있는 테이블을 "자식 테이블" 이라고 한다.
+(yeyakno        number      -- 예약번호  예약번호는 사용자가 수동적으로 입력치 않고 자동적으로 들어와야 한다. 그리고 예약번호는 매번 그 숫자가 증가해야 한다.
+                            --           그렇게 되도록 위에서 생성한 시퀀스를 사용토록 한다.
+                            -- 예약번호의 값은 NOT NULL 이면서 고유해야 한다.
+,gogekid        varchar2(30) not null  -- 고객아이디 NOT NULL
+,registerday    date default sysdate   -- registerday 컬럼에 값을 입력하지 않고 생략하면 자동적으로 default 로 선언된 sysdate 값이 들어온다.
+,ticketcnt      number(2) not null     -- -99 ~ 99
+
+,constraint PK_tbl_yeyak_yeyakno primary key(yeyakno)  -- 제약조건명은 30글자 이내여야 한다.
+
+,constraint FK_tbl_yeyak_gogekid foreign key(gogekid) references tbl_gogek(gogekid)
+-- tbl_yeyak 테이블의 gogekid 컬럼에 들어오는 값은 아무거나 올 수 없고
+-- 반드시 tbl_gogek 테이블의 입력된 gogekid 컬럼 값을 참조해서
+-- tbl_gogek 테이블의 gogekid 컬럼에 들어있는 것만 입력될 수 있다.
+-- 그런데 중요한 것은 tbl_gogek 테이블의 gogekid 컬럼은 참조를 받는 컬럼인데
+-- 참조를 받는 컬럼은 반드시 NOT NULL 이면서 고유한 값만 들어와야 한다.
+
+,constraint CK_tbl_yeyak_ticketcnt check(1 <= ticketcnt and ticketcnt <= 10)
+);
+
+desc tbl_yeyak;
+
+drop table tbl_yeyak purge;  -- 테이블 삭제
+
+insert into tbl_yeyak(yeyakno, gogekid, registerday, ticketcnt)
+values(seq_yeyakno.nextval, 'leess', default, 20);  -- 고객 테이블에 있는 정보만 받을 수 있게 해야한다.
+-- 1 행 이(가) 삽입되었습니다.
+-- ORA-01400: cannot insert NULL into ("HR"."TBL_YEYAK"."GOGEKID"), yeyakno, gogekid 모두 not null 일 때 하나만 입력하여 하나를 null 값 처리할 수 없기 때문에 오류
+-- ORA-02290: check constraint (HR.CK_TBL_YEYAK_TICKETCNT) violated, check 제약으로 인해 입력 오류
+
+insert into tbl_yeyak(yeyakno, gogekid, ticketcnt)
+values(seq_yeyakno.nextval, 'leess', -30);
+-- ORA-02290: check constraint (HR.CK_TBL_YEYAK_TICKETCNT) violated, check 제약으로 인해 입력 오류
+
+insert into tbl_yeyak(yeyakno, gogekid, registerday, ticketcnt)
+values(seq_yeyakno.nextval, 'leess', sysdate, 0);
+-- ORA-02290: check constraint (HR.CK_TBL_YEYAK_TICKETCNT) violated, check 제약으로 인해 입력 오류
+
+insert into tbl_yeyak(yeyakno, gogekid, ticketcnt)
+values(seq_yeyakno.nextval, 'leess', 2);
+-- 1 행 이(가) 삽입되었습니다.
+
+insert into tbl_yeyak(yeyakno, gogekid, ticketcnt) values(seq_yeyakno.nextval, 'hongkd', 1);
+-- 입력오류!! 왜나하면 tbl_yeyak 테이블의 gogekid 컬럼에 입력되거나 수정되는 값은
+-- 반드시 tbl_gogek 테이블에 입력된 gogekid 컬럼의 값만 들어올 수 있기 때문이다.
+-- 현재는 tbl_gogek 테이블에 입력된 gogekid 컬럼의 값은 'leess' 과 'eomjh' 만 있기 때문에
+-- 고객으로 등록이 안된 'hongkd' 은 입력을 할 수 없다.
+
+insert into tbl_yeyak(yeyakno, gogekid, ticketcnt) values(seq_yeyakno.nextval, 'eomjh', 1);
+
+insert into tbl_yeyak(yeyakno, gogekid, ticketcnt) values(seq_yeyakno.nextval, 'leess', 3);
+
+select *
+from tbl_yeyak;
+
+commit;
+
+select *
+from tbl_gogek;
+
+select *
+from tbl_yeyak Y join tbl_gogek G
+on Y.gogekid = G.gogekid;
+
+--- *** 생성된 제약조건을 조회해보자 ** ---
+select *
+from user_constraints
+where table_name = 'TBL_GOGEK';  -- 데이터 값은 대소문자 구분해야한다.
+
+select *
+from user_cons_columns
+where table_name = 'TBL_GOGEK';
+
+select *
+from user_constraints
+where table_name = 'TBL_YEYAK';
+
+select *
+from user_cons_columns
+where table_name = 'TBL_YEYAK';
+
+-- 일반적으로 제약조건을 조회할 경우에는 user_constraints 와 user_cons_columns 를 JOIN 을 통해서 조회한다.
+-- JOIN 조건절 컬럼은 constraint_name 으로 한다.
+select *
+from user_constraints A join user_cons_columns B
+on A.constraint_name = B.constraint_name
+where A.table_name = 'TBL_GOGEK';
+
+select *
+from user_constraints A join user_cons_columns B
+on A.constraint_name = B.constraint_name
+where A.table_name = 'TBL_YEYAK';
+
+
+--- *** === tbl_yeyak 테이블에 어떤 컬럼이 어떤 default 값을 가지는지 알고자 한다. === *** ---
+select column_name, data_type, data_default
+from user_tab_columns
+where table_name = 'TBL_YEYAK';
+
+--- *** === tbl_yeyak 테이블에 registerday 컬럼의 default 값을 변경하고자 한다. === *** ---
+alter table tbl_yeyak
+modify registerday default sysdate - 1;
+
+select column_name, data_type, data_default
+from user_tab_columns
+where table_name = 'TBL_YEYAK';
+
+insert into tbl_yeyak(yeyakno, gogekid, ticketcnt)
+values(seq_yeyakno.nextval, 'eomjh', 5);
+
+select yeyakno, gogekid, to_char(registerday, 'yyyy-mm-dd hh24:mi:ss'), ticketcnt
+from tbl_yeyak;
+
+--- *** === tbl_yeyak 테이블에 registerday 컬럼의 default 값을 삭제한다. === *** ---
+alter table tbl_yeyak
+modify registerday default null;
+
+select column_name, data_type, data_default
+from user_tab_columns
+where table_name = 'TBL_YEYAK';
+
+insert into tbl_yeyak(yeyakno, gogekid, ticketcnt)
+values(seq_yeyakno.nextval, 'chaew', 9);
+-- registerday 컬럼에 null 을 허락할 때, registerday 컬럼에 default 가 없을 경우 값을 입력치 않으면 자동적으로 null 이 들어온다.
+
+desc tbl_yeyak;
+
+select *
+from tbl_yeyak;
+
+--- *** === tbl_yeyak 테이블에 registerday 컬럼의 default로 sysdate 를 주도록 하세요. === *** ---
+alter table tbl_yeyak
+modify registerday default sysdate;
+
+select column_name, data_type, data_default
+from user_tab_columns
+where table_name = 'TBL_YEYAK';
+
+--- *** === tbl_yeyak 테이블에 새로운 컬럼을 추가해보겠습니다.=== *** ---
+--- 예약날짜(reservationday) 컬럼을 추가하겠다.
+alter table tbl_yeyak
+add reservationday date;
+
+desc tbl_yeyak;
+
+select *
+from tbl_yeyak;
+
+--- *** === tbl_yeyak 테이블에 있는 예약날짜(reservationday) 컬럼을 삭제해보겠습니다.=== *** ---
+alter table tbl_yeyak
+drop column reservationday;
+
+desc tbl_yeyak;
+
+select *
+from tbl_yeyak;
+
+--- *** === tbl_yeyak 테이블에 있는 컬럼명 ticketcnt 이름을 yeyakcnt 라는 이름으로 변경하겠다.=== *** ---
+alter table tbl_yeyak
+rename column ticketcnt to yeyakcnt;
+
+desc tbl_yeyak;
+
+select *
+from tbl_yeyak;
+
+--- *** yeyakcnt 를 ticketcnt 로 변경한다. *** ---
+alter table tbl_yeyak
+rename column yeyakcnt to ticketcnt;
+
+desc tbl_yeyak;
+-- TICKETCNT   NOT NULL NUMBER(2) ==> -99 ~ 99
+
+insert into tbl_yeyak(yeyakno, gogekid, ticketcnt)
+values(seq_yeyakno.nextval, 'eomjh', 150);
+-- ORA-01438: value larger than specified precision allowed for this column
+
+--- *** ticketcnt 컬럼에 입력되는 값을 1개 이상 200개 이하까지만 허락되도록 하고자 한다. *** ---
+-- 1. ticketcnt 컬럼의 타입을 NUMBER(2) 에서 NUMBER(3) 으로 변경해야 한다.
+alter table tbl_yeyak
+modify ticketcnt number(3);
+
+desc tbl_yeyak;
+-- TICKETCNT   NOT NULL NUMBER(3) ==> -999 ~ 999
+
+-- 2. ticketcnt 컬럼에 걸린 check 제약을 변경해야 한다.
+-- tbl_yeyak 테이블에 존재하는 check 제약을 조회해 오자.
+select *
+from user_constraints
+where table_name = 'TBL_YEYAK' and constraint_type = 'C';
+-- -----------------------------------------------------------
+-- CONSTRAINT_NAME          SEARCH_CONDITION
+-- -----------------------------------------------------------
+-- CK_TBL_YEYAK_TICKETCNT   1<="TICKETCNT" AND "TICKETCNT"<=10
+
+-- 제약조건을 변경하고자 한다면 기존의 제약조건을 삭제하고 다시 생성하는 방법밖에 없다.
+-- 2.1. 기존의 제약조건을 삭제한다.
+alter table tbl_yeyak
+drop constraint CK_TBL_YEYAK_TICKETCNT;
+
+select *
+from user_constraints
+where table_name = 'TBL_YEYAK' and constraint_type = 'C';
+
+-- 2.2. 새로운 제약조건을 생성한다.
+alter table tbl_yeyak
+add constraint CK_TBL_YEYAK_TICKETCNT check(1 <= ticketcnt and ticketcnt <= 200);
+-- ------------------------------------------------------------
+-- CONSTRAINT_NAME          SEARCH_CONDITION
+-- ------------------------------------------------------------
+-- CK_TBL_YEYAK_TICKETCNT   1 <= ticketcnt and ticketcnt <= 200
+
+select *
+from user_constraints
+where table_name = 'TBL_YEYAK' and constraint_type = 'C';
+
+insert into tbl_yeyak(yeyakno, gogekid, registerday, ticketcnt)
+values(seq_yeyakno.nextval, 'leess', default, 20);
+-- 1 행 이(가) 삽입되었습니다.
+
+insert into tbl_yeyak(yeyakno, gogekid, registerday, ticketcnt)
+values(seq_yeyakno.nextval, 'leess', default, 201);
+-- ORA-02290: check constraint (HR.CK_TBL_YEYAK_TICKETCNT) violated
+
+-- 특이하게도 NOT NULL 제약의 생성은
+-- alter table 테이블명
+-- add constraint 제약조건명 제약조건설정;
+-- 처럼 일반적인 형태(Primary Key, Unique, Foreign Key, Check 제약 생성)가 아니다.
+
+-- tbl_yeyak 테이블에서 ticketcnt 컬럼에 걸린 not null 제약을 없애겠다.
+select *
+from user_constraints
+where table_name = 'TBL_YEYAK' and constraint_type = 'C';
+
+alter table tbl_yeyak
+drop constraint SYS_C007040;  -- 임의로 부여된 제약조건명이기 때문에 바로 파악할 수 없다.
+-- 또는
+alter table tbl_yeyak
+modify ticketcnt null;
+
+desc tbl_yeyak;
+-- TICKETCNT            NUMBER(3) 
+
+-- tbl_yeyak 테이블에서 ticketcnt 컬럼에 not null 제약을 추가하겠다.
+alter table tbl_yeyak
+modify ticketcnt not null;
+
+desc tbl_yeyak;
+-- TICKETCNT   NOT NULL NUMBER(3)
+
+
+-- *** 테이블명 변경하기 *** --
+-- tbl_yeyak 테이블명을 yeyak_tbl 로 변경해보겠다.
+rename tbl_yeyak to yeyak_tbl;
+-- 테이블 이름이 변경되었습니다.
+
+select *
+from yeyak_tbl;
+
+select *
+from tbl_yeyak;
