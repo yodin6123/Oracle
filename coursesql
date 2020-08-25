@@ -3826,6 +3826,103 @@ employees 테이블에서 80번, 90번 부서에 근무하는 사원들만 아�
     on E1.manager_id = E2.employee_id
     order by 1,10;
     
+    -- 답
+    ----------------------------------------------------------------------------------------------------------
+     부서번호   부서명   부서주소  부서장성명  사원번호  사원명  연봉  연봉소득세액  부서내연봉평균차액   부서내연봉등수
+    ---------------------------------------------------------------------------------------------------------- 
+  /*
+  부서번호         --> departments , employees  조인조건절  departments.department_id , employees.department_id  
+  부서명           --> departments
+  부서주소         --> locations     조인조건절  locations.location_id   departments.location_id
+  부서장성명       --> employees     조인조건절  departments.manager_id   employees.employee_id  
+  사원번호         --> employees 
+  사원명           --> employees 
+  연봉             --> employees 
+  연봉소득세액      --> tbl_taxindex   조인조건절  employees.연봉이   tbl_taxindex.lowerincome  ~  tbl_taxindex.highincome 범위안에 들어오는 것 
+  부서내연봉평균차액 --> employees 
+  부서내연봉등수    --> employees
+  
+  [부서번호  부서명  부서주소  부서장성명] A
+  [사원번호  사원명  연봉  연봉소득세액  부서내연봉평균차액   부서내연봉등수] B
+  ==> A join B
+  */
+    select D.department_id AS 부서번호
+        , department_name AS 부서명
+        , street_address || ' ' || city || ' ' || state_province AS 부서주소 
+   --   , D.manager_id, E.employee_id 
+        , E.first_name || ' ' || E.last_name AS 부서장성명
+   from departments D JOIN locations L 
+   ON D.location_id = L.location_id
+   JOIN employees E
+   ON D.manager_id = E.employee_id;
+   
+   
+   with V as (
+       select department_id
+            , trunc(avg(nvl(salary+(salary*commission_pct), salary)*12)) AS DeptAvgYearSal
+       from employees
+       group by department_id
+   )
+   select E.department_id AS 부서번호
+        , employee_id AS 사원번호
+        , first_name || ' ' || last_name AS 사원명
+        , to_char( nvl(salary+(salary*commission_pct), salary)*12, '999,999') AS 연봉
+        , to_char( nvl(salary+(salary*commission_pct), salary)*12 * taxpercent, '99,999.9') AS 연봉소득세액 
+    --  , DeptAvgSal AS 부서내평균연봉
+        , nvl(salary+(salary*commission_pct), salary)*12 - DeptAvgYearSal AS 부서내연봉평균차액
+        , rank() over(partition by E.department_id
+                      order by nvl(salary+(salary*commission_pct), salary)*12 desc) AS 부서내연봉등수
+   from employees E JOIN tbl_taxindex T  
+   ON nvl(salary+(salary*commission_pct), salary)*12 between lowerincome and highincome 
+   JOIN V
+   ON nvl(E.department_id, -9999) = nvl(V.department_id, -9999);
+  
+   
+   select A.department_id AS 부서번호
+        , department_name AS 부서명
+        , Address AS 부서주소
+        , DeptHeadName AS 부서장성명
+        , employee_id AS 사원번호
+        , Ename AS 사원명
+        , YearSal AS 연봉
+        , YearSalTax AS 연봉소득세액
+        , DeptAvgYearSalDiff AS 부서내연봉평균차액
+        , DeptYearSalRank AS 부서내연봉등수
+   from 
+   (
+     select D.department_id
+          , department_name
+          , street_address || ' ' || city || ' ' || state_province AS Address 
+          , E.first_name || ' ' || E.last_name AS DeptHeadName
+     from departments D JOIN locations L 
+     ON D.location_id = L.location_id
+     JOIN employees E
+     ON D.manager_id = E.employee_id
+   ) A
+   RIGHT JOIN
+   (
+     with V as (
+         select department_id
+              , trunc(avg(nvl(salary+(salary*commission_pct), salary)*12)) AS DeptAvgYearSal
+         from employees
+         group by department_id
+     )
+     select E.department_id
+          , employee_id 
+          , first_name || ' ' || last_name AS Ename
+          , to_char( nvl(salary+(salary*commission_pct), salary)*12, '999,999') AS YearSal
+          , to_char( nvl(salary+(salary*commission_pct), salary)*12 * taxpercent, '99,999.9') AS YearSalTax 
+          , nvl(salary+(salary*commission_pct), salary)*12 - DeptAvgYearSal AS DeptAvgYearSalDiff
+          , rank() over(partition by E.department_id
+                        order by nvl(salary+(salary*commission_pct), salary)*12 desc) AS DeptYearSalRank
+     from employees E JOIN tbl_taxindex T  
+     ON nvl(salary+(salary*commission_pct), salary)*12 between lowerincome and highincome 
+     JOIN V
+     ON nvl(E.department_id, -9999) = nvl(V.department_id, -9999)
+   ) B
+   ON A.department_id = B.department_id
+   order by 1, 7 desc;
+    
     
     ----- **** SET Operator(SET 연산자) **** -----
 ---- *** UNION / UNION ALL / INTERSECT / MINUS *** ---- 
@@ -5384,10 +5481,28 @@ insert into tbl_yeyak(yeyakno, gogekid, registerday, ticketcnt)
 values(seq_yeyakno.nextval, 'leess', default, 201);
 -- ORA-02290: check constraint (HR.CK_TBL_YEYAK_TICKETCNT) violated
 
--- 특이하게도 NOT NULL 제약의 생성은
--- alter table 테이블명
--- add constraint 제약조건명 제약조건설정;
--- 처럼 일반적인 형태(Primary Key, Unique, Foreign Key, Check 제약 생성)가 아니다.
+---- **** 5개의 제약조건(Primary Key, Unique, Foreign key, Check, NOT NULL) 중 
+/*   [제약조건의 삭제하기]는 
+          alter table 테이블명 drop constraint 제약조건명; ==> 삭제하기
+  
+     [제약조건의 추가하기]는
+          alter table 테이블명 add constraint 제약조건명 primary key(컬럼명);
+          alter table 테이블명 add constraint 제약조건명 unique(컬럼명);   
+          alter table 테이블명 add constraint 제약조건명 check(.....);   
+          alter table 테이블명 add constraint 제약조건명 foreign key(컬럼명) references 부모테이블명(컬럼명); 
+ 
+     그런데 특이하게도 NOT NULL 은 추가하기, 삭제하기의 문법이 다르다.
+     NOT NULL 제약의 추가는 아래처럼 하는 것이 아니다.
+    
+     alter table 테이블명
+     add constraint 제약조건명 제약조건설정값; 이 아니라
+    
+     alter table 테이블명
+     modify 컬럼명 not null; <-- NOT NULL 제약의 추가이다.
+     
+     alter table 테이블명
+     modify 컬럼명 null;     <-- NOT NULL 제약의 삭제이다.
+*/
 
 -- tbl_yeyak 테이블에서 ticketcnt 컬럼에 걸린 not null 제약을 없애겠다.
 select *
@@ -5411,13 +5526,575 @@ desc tbl_yeyak;
 -- TICKETCNT   NOT NULL NUMBER(3)
 
 
+--- *** 제약조건의 비활성화 *** ---
+select *
+from tbl_yeyak;
+
+select *
+from tbl_gogek;
+-- 고객으로 'hongkd'은 존재하지 않는다.
+
+insert into tbl_yeyak(yeyakno, gogekid, ticketcnt)
+values(seq_yeyakno.nextval, 'hongkd', 1);
+-- ORA-02291: integrity constraint (HR.FK_TBL_YEYAK_GOGEKID) violated - parent key not found
+
+-- TBL_YEYAK 테이블에 존재하는 foreign key 를 조회한다.
+select A.constraint_name, constraint_type, r_constraint_name, status, column_name
+from user_constraints A join user_cons_columns B
+on A.constraint_name = B.constraint_name
+where A.table_name = 'TBL_YEYAK' and
+      A.constraint_type = 'R';
+-- A.constraint_name    constraint_type r_constraint_name(참조 받는 기본키 제약조건명)  status  column_name
+--------------------------------------------------------------------------------------------------------------------------------
+-- FK_TBL_YEYAK_GOGEKID	R	            PK_TBL_GOGEK_GOGEKID	                    ENABLED	 GOGEKID
+
+--- *** TBL_YEYAK 테이블에 존재하는 foreign key 인 FK_TBL_YEYAK_GOGEKID 제약조건의 비활성화 *** ---
+alter table tbl_yeyak
+disable constraint FK_TBL_YEYAK_GOGEKID;
+
+select A.constraint_name, constraint_type, r_constraint_name, status, column_name
+from user_constraints A join user_cons_columns B
+on A.constraint_name = B.constraint_name
+where A.table_name = 'TBL_YEYAK' and
+      A.constraint_type = 'R';
+-- A.constraint_name    constraint_type r_constraint_name(참조 받는 기본키 제약조건명)  status    column_name
+--------------------------------------------------------------------------------------------------------------------------------
+-- FK_TBL_YEYAK_GOGEKID	R	            PK_TBL_GOGEK_GOGEKID	                    DISABLED   GOGEKID
+
+insert into tbl_yeyak(yeyakno, gogekid, ticketcnt)
+values(seq_yeyakno.nextval, 'hongkd', 1);
+-- 1 행 이(가) 삽입되었습니다.
+
+insert into tbl_yeyak(yeyakno, gogekid, ticketcnt)
+values(seq_yeyakno.nextval, 'youks', 1);
+
+commit;
+
+--- *** 제약조건의 활성화 *** ---
+alter table tbl_yeyak
+enable constraint FK_TBL_YEYAK_GOGEKID;
+-- *Cause:    an alter table validating constraint failed because the table has child records.
+-- foreign key 제약조건 FK_TBL_YEYAK_GOGEKID 에 위배되는 데이터(행)가 tbl_yeyak 테이블에 존재하므로 안된다.
+-- 위에서 삽입한
+-- insert into tbl_yeyak(yeyakno, gogekid, ticketcnt)
+-- values(seq_yeyakno.nextval, 'hongkd', 1); 때문이다.
+
+-- [퀴즈] tbl_yeyak 테이블에서 tbl_gogek 에 등록이 안된 gogekid 를 가지는 행을 추출하세요.
+select distinct gogekid
+from tbl_yeyak
+minus
+select gogekid
+from tbl_gogek;
+
+-- [퀴즈] tbl_yeyak 테이블에서 tbl_gogek 에 등록이 안된 gogekid 를 가지는 행을 삭제하세요.
+delete from tbl_yeyak
+where gogekid in (select distinct gogekid
+                  from tbl_yeyak
+                  minus
+                  select gogekid
+                  from tbl_gogek);
+-- 2개 행 이(가) 삭제되었습니다.
+
+commit;
+
+select *
+from tbl_yeyak;
+
+--- *** 제약조건 위배하는 데이터(행) 삭제 후 제약조건의 활성화 *** ---
+alter table tbl_yeyak
+enable constraint FK_TBL_YEYAK_GOGEKID;
+-- Table TBL_YEYAK이(가) 변경되었습니다.
+
+
+-- *** === !!!!! Foreign Key 생성 시 옵션을 주지 않는 것 !!!!! === *** --
+
+-- *** === !!!!! Foreign Key 생성 시 on delete cascade 옵션을 주는 것 !!!!! === *** --
+
+-- *** === !!!!! Foreign Key 생성 시 on delete set null 옵션을 주는 것 !!!!! === *** --
+
+-- 1. Foreign Key 생성 시 옵션을 주지 않는 것
+create table tbl_buseo_1
+(buno       number(2)               -- 10 20 30 ... 90
+,buname     varchar2(100) not null  -- varchar2 의 최대 크기는 4000 byte 이다.
+,constraint PK_tbl_buseo_1_buno primary key(buno)
+,constraint CK_tbl_buseo_1_buno check(buno in(10,20,30,40,50,60,70,80,90))
+-- buno 컬럼에 입력할 수 있는 값은 10 20 30 40 50 60 70 80 90 만 가능하다.
+);
+
+create table tbl_sawon_1
+(sano       number(4)
+,saname     varchar2(100) not null
+,fk_buno    number(2)  -- foreign key 라는 것을 쉽게 구분하기 위해 표현, 참조하는 데이터 타입과 일치시켜야 한다.
+,constraint PK_tbl_sawon_1_sano primary key(sano)
+,constraint FK_tbl_sawon_1_fk_buno foreign key(fk_buno) references tbl_buseo_1(buno)
+);
+
+insert into tbl_buseo_1(buno, buname) values(10, '연구부');
+insert into tbl_buseo_1(buno, buname) values(20, '영업부');
+insert into tbl_buseo_1(buno, buname) values(30, '생산부');
+
+commit;
+
+insert into tbl_sawon_1(sano, saname, fk_buno) values(1001, '일미자', 10);
+insert into tbl_sawon_1(sano, saname, fk_buno) values(1002, '이미자', 10);
+insert into tbl_sawon_1(sano, saname, fk_buno) values(1003, '삼미자', 20);
+insert into tbl_sawon_1(sano, saname, fk_buno) values(1004, '사미자', 20);
+insert into tbl_sawon_1(sano, saname, fk_buno) values(1005, '오미자', 20);
+
+commit;
+
+select *
+from tbl_buseo_1;
+
+select *
+from tbl_sawon_1;  -- 현재 30번 부서에 근무하는 사원은 없다.
+
+-- 부모 테이블인 tbl_buseo_1 테이블에서 행을 삭제하려고 한다.
+delete from tbl_buseo_1
+where buno = 30;
+-- 1 행 이(가) 삭제되었습니다.
+
+delete from tbl_buseo_1
+where buno = 20;
+-- ORA-02292: integrity constraint (HR.FK_TBL_SAWON_1_FK_BUNO) violated - child record found
+-- 참조무결성으로 인해 삭제가 불가하다.
+-- tbl_buseo_1 테이블에 buno 컬럼의 값이 20 인 행을 참조하는 자식테이블 tbl_sawon_1의 행(삼미자, 사미자, 오미자)이 존재하므로 삭제가 불가하다.
+
+rollback;
+
+-- 2. Foreign Key 생성 시 on delete cascade 옵션을 주는 것
+create table tbl_buseo_2
+(buno       number(2)
+,buname     varchar2(100) not null
+,constraint PK_tb1_buseo_2_buno primary key(buno)
+,constraint CK_tbl_buseo_2_buno check(buno in(10,20,30,40,50,60,70,80,90))
+);
+
+create table tbl_sawon_2
+(sano       number(4)
+,saname     varchar2(100) not null
+,fk_buno    number(2)
+,constraint PK_tbl_sawon_2_sano primary key(sano)
+,constraint FK_tbl_sawon_2_fk_buno foreign key(fk_buno) references tbl_buseo_2(buno) on delete cascade
+);
+
+insert into tbl_buseo_2(buno, buname) values(10, '연구부');
+insert into tbl_buseo_2(buno, buname) values(20, '영업부');
+insert into tbl_buseo_2(buno, buname) values(30, '생산부');
+
+commit;
+
+insert into tbl_sawon_2(sano, saname, fk_buno) values(1001, '일미자', 10);
+insert into tbl_sawon_2(sano, saname, fk_buno) values(1002, '이미자', 10);
+insert into tbl_sawon_2(sano, saname, fk_buno) values(1003, '삼미자', 20);
+insert into tbl_sawon_2(sano, saname, fk_buno) values(1004, '사미자', 20);
+insert into tbl_sawon_2(sano, saname, fk_buno) values(1005, '오미자', 20);
+
+commit;
+
+select *
+from tbl_buseo_2;
+
+select *
+from tbl_sawon_2;  -- 현재 30번 부서에 근무하는 사원은 없다.
+
+-- 부모 테이블인 tbl_buseo_2 테이블에서 행을 삭제하려고 한다.
+delete from tbl_buseo_2
+where buno = 30;
+-- 1 행 이(가) 삭제되었습니다.
+
+delete from tbl_buseo_2
+where buno = 20;
+-- 1 행 이(가) 삭제되었습니다.
+/*
+  자식 테이블인 tbl_sawon_2 테이블에 foreign key 생성 시 on delete cascade 라는 옵션을 주었으므로
+  부모 테이블인 tbl_buseo_2 테이블에서 buno 컬럼의 값이 20 인 행을 삭제하려고 할 때
+  먼저 자식 테이블인 tbl_sawon_2 테이블에 fk_buno 컬럼의 값이 20 인 행(삼미자,사미자,오미자)을 delete(삭제)하고서
+  그 다음에 부모 테이블인 tbl_buseo_2 테이블에서 buno 컬럼의 값이 20 인 행을 delete(삭제)한다.
+*/
+
+rollback;
+/*
+  foreign key 생성 시 on delete cascade 라는 옵션을 주는 경우는
+  게시판에서 원글에 딸린 댓글이 있는 경우
+  원글을 삭제하면 댓글은 남아 있을 필요가 없다.
+  그러므로 이러한 경우에는 on delete cascade 라는 옵션을 주어서 만든다.
+  
+  create table 원글테이블명
+  (원글번호     number primary key
+  ,글제목       varchar2(200)
+  );
+  
+  create table 댓글테이블명
+  (댓글번호     number primary key
+  ,댓글제목     varchar2(200)
+  ,fk_원글번호  number
+  ,constraint 제약조건명 foreign key(fk_원글번호) references 원글테이블명(원글번호) on delete cascade
+  );
+*/
+
+-- 3. Foreign Key 생성 시 on delete set null 옵션을 주는 것
+-- drop table tbl_sawon_3 purge;
+-- drop table tbl_buseo_3 purge;
+
+create table tbl_buseo_3
+(buno       number(2)
+,buname     varchar2(100) not null
+,constraint PK_tb1_buseo_3_buno primary key(buno)
+,constraint CK_tbl_buseo_3_buno check(buno in(10,20,30,40,50,60,70,80,90))
+);
+
+create table tbl_sawon_3
+(sano       number(4)
+,saname     varchar2(100) not null
+,fk_buno    number(2)
+,constraint PK_tbl_sawon_3_sano primary key(sano)
+,constraint FK_tbl_sawon_3_fk_buno foreign key(fk_buno) references tbl_buseo_3(buno) on delete set null
+-- on delete set null 을 사용하고자 한다면 foreign key 로 사용되는 fk_buno 컬럼은 반드시 null 을 허용해야 한다(not null 지정해도 테이블은 만들어지나, 해당 foreign key 를 참조받는 부모 테이블 데이터를 삭제할 때 오류 발생).
+);
+
+insert into tbl_buseo_3(buno, buname) values(10, '연구부');
+insert into tbl_buseo_3(buno, buname) values(20, '영업부');
+insert into tbl_buseo_3(buno, buname) values(30, '생산부');
+
+commit;
+
+insert into tbl_sawon_3(sano, saname, fk_buno) values(1001, '일미자', 10);
+insert into tbl_sawon_3(sano, saname, fk_buno) values(1002, '이미자', 10);
+insert into tbl_sawon_3(sano, saname, fk_buno) values(1003, '삼미자', 20);
+insert into tbl_sawon_3(sano, saname, fk_buno) values(1004, '사미자', 20);
+insert into tbl_sawon_3(sano, saname, fk_buno) values(1005, '오미자', 20);
+
+commit;
+
+select *
+from tbl_buseo_3;
+
+select *
+from tbl_sawon_3;  -- 현재 30번 부서에 근무하는 사원은 없다.
+
+-- 부모 테이블인 tbl_buseo_3 테이블에서 행을 삭제하려고 한다.
+delete from tbl_buseo_3
+where buno = 30;
+-- 1 행 이(가) 삭제되었습니다.
+
+delete from tbl_buseo_3
+where buno = 20;
+-- 1 행 이(가) 삭제되었습니다.
+/*
+  자식 테이블인 tbl_sawon_3 테이블에 foreign key 생성 시 on delete set null 이라는 옵션을 주었으므로
+  부모 테이블인 tbl_buseo_3 테이블에서 buno 컬럼의 값이 20 인 행을 삭제하려고 할 때
+  먼저 자식 테이블인 tbl_sawon_3 테이블에 fk_buno 컬럼의 값이 20 인 행(삼미자,사미자,오미자)의 해당 값을 null 로 변경하고서
+  그 다음에 부모 테이블인 tbl_buseo_3 테이블에서 buno 컬럼의 값이 20 인 행을 delete(삭제)한다.
+*/
+
+rollback;
+
+
 -- *** 테이블명 변경하기 *** --
 -- tbl_yeyak 테이블명을 yeyak_tbl 로 변경해보겠다.
 rename tbl_yeyak to yeyak_tbl;
 -- 테이블 이름이 변경되었습니다.
 
 select *
-from yeyak_tbl;
+from yeyak_tbl;  -- 테이블명이 변경되어 조회된다.
 
 select *
-from tbl_yeyak;
+from tbl_yeyak;  -- 테이블명이 존재하지 않는다.
+
+
+-- *** !!! 테이블을 drop 할때 purge 를 사용하는것과 사용하지 않는 것의 차이점 !!! *** --
+-- drop table 삭제하고자하는테이블명;  ==> 휴지통에 테이블을 버리는 것이므로 다시 복원을 할 수 있다.
+
+-- drop table 삭제하고자하는테이블명 purge;  ==> 영구히 테이블을 삭제하는 것이므로 다시 복원을 할 수 없다.
+
+create table tbl_exam_1
+(name       varchar2(20));
+insert into tbl_exam_1(name) values('연습1');
+
+create table tbl_exam_2
+(name       varchar2(20));
+insert into tbl_exam_2(name) values('연습2');
+
+create table tbl_exam_3
+(name       varchar2(20));
+insert into tbl_exam_3(name) values('연습3');
+
+create table tbl_exam_4
+(name       varchar2(20));
+insert into tbl_exam_4(name) values('연습4');
+
+create table tbl_exam_5
+(name       varchar2(20));
+insert into tbl_exam_5(name) values('연습5');
+
+commit;
+
+select * from tab;
+-- 결과물에서 BIN$ 로 시작하는 것은 휴지통에 버려진 테이블이다.
+
+drop table tbl_exam_1;
+-- Table TBL_EXAM_1이(가) 삭제되었습니다.
+
+drop table tbl_exam_2;
+-- Table TBL_EXAM_2이(가) 삭제되었습니다.
+
+select *
+from tbl_exam_1;
+-- 00942. 00000 -  "table or view does not exist"
+
+select *
+from "BIN$GfLuTcZGT5ORo1OF3sbnJA==$0";  -- 휴지통에 있는 테이블은 "" 붙여야 읽을 수 있다.
+
+-- *** 휴지통 조회하기 *** --
+select *
+from user_recyclebin;
+
+-- *** 휴지통에 있는 테이블 복원하기 *** --
+flashback table TBL_EXAM_1 to before drop;
+-- Flashback을(를) 성공했습니다.
+
+select *
+from tbl_exam_1;
+-- 복원 성공
+
+-- *** 휴지통에 있는 특정 테이블을 영구히 삭제하기 *** --
+purge table TBL_EXAM_2;
+-- Table이(가) 비워졌습니다.
+
+-- *** 휴지통에 있는 모든 테이블을 영구히 삭제하기 *** --
+drop table tbl_exam_3;
+drop table tbl_exam_4;
+
+purge recyclebin;
+-- Recyclebin이(가) 비워졌습니다.
+
+select *
+from user_recyclebin;
+
+-- *** 테이블을 drop 할때 휴지통에 버리는것이 아니라 영구히 삭제하기 *** --
+drop table tbl_exam_5 purge;
+-- Table TBL_EXAM_5이(가) 삭제되었습니다.
+
+
+----- ***** index(인덱스) ***** -----
+-- index(==색인)를 사용하는 이유는 where 절이 있는 select 명령문의 속도를 향상시키기 위함이다.
+-- index(==색인)는 어떤 컬럼에 만들어야 할까?
+/*
+  1. where 절에서 자주 사용되는 컬럼
+  2. 선택도(selectivity)가 좋은 컬럼에 만들어야 한다.
+  ※ 선택도(selectivity)가 좋다라는 것은 고유한 데이터일수록 이다.
+  예: 성별컬럼 --> 선택도(selectivity)가 나쁘다. 왜나하면 남자 아니면 여자이므로 인덱스로 검색하는 것보다 테이블 풀스캔이 낫다.
+      학번    --> 선택도(selectivity)가 좋다.
+*/
+create table tbl_student_1
+(hakbun     varchar2(10) not null
+,name       varchar2(20)
+,email      varchar2(20)
+,address    varchar2(20)
+);
+
+-- *** unique index 생성하기 *** --
+create unique index idx_tbl_student_1_hakbun  -- 또는 create index/ unique index 는 해당 컬럼에 unique 제약을 준 것과 같은 결과를 낸다.
+on tbl_student_1(hakbun);  -- asc 생략
+-- on tbl_student_1(hakbun asc)
+-- on tbl_student_1(hakbun desc)
+-- Index IDX_TBL_STUDENT_1_HAKBUN이(가) 생성되었습니다.
+
+-- *** non-unique index 생성하기 *** --
+create index idx_tbl_student_1_name  -- 중복된 데이터가 있다면 unique를 빼야한다.
+on tbl_student_1(name);
+
+insert into tbl_student_1(hakbun, name, email, address)
+values('0001', '황재성', 'hjs@naver.com', '서울시 강동구');
+
+insert into tbl_student_1(hakbun, name, email, address)
+values('0001', '황삼성', 'hss@naver.com', '서울시 강서구');
+-- ORA-00001: unique constraint (HR.IDX_TBL_STUDENT_1_HAKBUN) violated
+
+insert into tbl_student_1(hakbun, name, email, address)
+values('0002', '황삼성', 'hss@naver.com', '서울시 강서구');
+
+insert into tbl_student_1(hakbun, name, email, address)
+values('0003', '여진구', 'yjg@naver.com', '서울시 강남구');
+
+insert into tbl_student_1(hakbun, name, email, address)
+values('0004', '여진구', 'yeo@gmail.com', '서울시 강북구');
+
+commit;
+
+-- TBL_STUDENT_1 테이블에 생성된 index 를 조회해본다.
+select *
+from user_indexes
+where table_name = 'TBL_STUDENT_1';
+
+select *
+from user_ind_columns
+where table_name = 'TBL_STUDENT_1';
+
+select A.index_name, uniqueness, column_name, descend
+from user_indexes A join user_ind_columns B
+on A.index_name = B.index_name
+where A.table_name = 'TBL_STUDENT_1';
+
+-- 테이블을 drop 하면 자동적으로 그 테이블에 생성돼 있던 모든 인덱스들은 자동적으로 drop 된다.
+drop table tbl_student_1 purge;
+
+select *
+from tbl_student_1      -- Table Full Scan
+where hakbun = '0001';  -- where 절에 hakbun 이 있으므로 오라클은 hakbun 컬럼에 index 가 존재하는지 여부를 검사해서
+                        -- index가 존재하면 Table Full Scan 하지 않고 index를 통해서 데이터를 조회해온다.
+                        
+select *
+from tbl_student_1
+where name = '여진구';  -- where 절에 name 이 있으므로 오라클은 name 컬럼에 index 가 존재하는지 여부를 검사해서
+                       -- index가 존재하면 Table Full Scan 하지 않고 index를 통해서 데이터를 조회해온다.
+                       
+-- *** index 삭제하기 *** --
+drop index IDX_TBL_STUDENT_1_NAME;
+-- Index IDX_TBL_STUDENT_1_NAME이(가) 삭제되었습니다.
+
+drop index IDX_TBL_STUDENT_1_HAKBUN;
+-- Index IDX_TBL_STUDENT_1_HAKBUN이(가) 삭제되었습니다.
+
+--- *** 복합인덱스(composite index) 생성하기 *** ---
+-- 복합인덱스(composite index)란? 2개 이상의 컬럼으로 묶어진 인덱스를 말한다.
+select *
+from tbl_student_1
+where name = '여진구' and address = '서울시 강남구';
+
+create index idx_tbl_student_1_cp
+on tbl_student_1(name, address);
+-- Index IDX_TBL_STUDENT_1_CP이(가) 생성되었습니다.
+
+-- Primary Key 제약 또는 Unique 제약을 주면 자동적으로 해당 컬럼에 unique한 index가 생성된다. ==> 굳이 index 를 만들 필요가 없다.
+-- 제약조건명이 index 명으로 사용된다.
+create table tbl_student_2
+(hakbun     varchar2(10)
+,name       varchar2(20)
+,email      varchar2(20) not null
+,address    varchar2(20)
+,constraint PK_tbl_student_2_hakbun primary key(hakbun)
+,constraint UK_tbl_student_2_email unique(email)
+);
+
+select A.index_name, uniqueness, column_name, descend
+from user_indexes A join user_ind_columns B
+on A.index_name = B.index_name
+where A.table_name = 'TBL_STUDENT_2';
+
+-- Primary Key 제약 또는 Unique 제약으로 생성된 index 의 제거는
+-- drop index index명; 이 아니라
+-- alter table 테이블명 drop constraint 제약조건명; 이다.
+-- 제약조건을 삭제하면 자동적으로 index 도 삭제가 된다.
+select A.constraint_name, constraint_type, search_condition, status, column_name
+from user_constraints A join user_cons_columns B
+on A.constraint_name = B.constraint_name
+where A.table_name = 'TBL_STUDENT_2';
+
+drop index PK_TBL_STUDENT_2_HAKBUN;
+-- 오류 ORA-02429: cannot drop index used for enforcement of unique/primary key
+
+alter table tbl_student_2
+drop constraint PK_TBL_STUDENT_2_HAKBUN;
+
+
+---- **** 계층형 쿼리 **** ----
+-- 계층형 쿼리는 답변형 게시판에서 사용된다.
+-- 또한 전자결제에서도 사용된다.
+select *
+from employees;
+
+-- 보고 계층: 사원번호 104 => 103 => 102 => 100
+select level  -- 계층의 번호를 나타냄
+     , employee_id AS 사원번호
+     , first_name || ' ' || last_name AS 사원명
+     , manager_id AS 사수번호
+from employees
+start with employee_id = 104                -- 103                  102                 100
+connect by prior manager_id = employee_id;
+--                       103 = employee_id;    102 = employee_id;   100 = employee_id;  null = employee_id;
+-- prior 다음에 나오는 manager_id 는 start with 되는 행의 manager_id 값이다.
+
+-- 명령 계층: 사원번호 100 => 아래로
+select level
+     , employee_id AS 사원번호
+     , first_name || ' ' || last_name AS 사원명
+     , manager_id AS 사수번호
+from employees
+start with employee_id = 100                -- 101                  108                 109
+connect by prior employee_id = manager_id;
+--                       100 = manager_id;     101 = manager_id;    108 = manager_id;   109 = manager_id;
+-- prior 다음에 나오는 employee_id 는 start with 되는 행의 employee_id 값이다.
+
+
+--------------------------------------------------------------------------------------------------------------------------------
+---- **** PL/SQL(Procedure Language SQL) **** ----
+-- 1. 사용자 정의 함수
+-- *** 사용자 정의 함수 *** --
+/*
+  [문법]
+  create or replace function 함수명
+  (파라미터변수명 in 파라미터변수타입)
+  return 리턴시킬타입
+  is
+    변수선언
+  begin
+    명령문
+    return 값;
+  end 함수명;
+*/
+
+create or replace function func_gender
+(p_jubun in varchar2)  -- (p_jubun in varchar2(13)) 처럼 자리수를 쓰면 오류!!
+return varchar2        -- varchar2(10) 처럼 자리수를 쓰면 오류!!
+is
+    v_genderNum varchar2(1);  -- is 와 begin 사이는 변수를 선언하는 부분이다. 변수 선언 시에는 자리수를 쓴다.
+    v_gender    varchar2(6);
+begin
+    -- p_jubun 이 '9510201234567' 이라고 한다면
+    v_genderNum := substr(p_jubun, 7, 1);  -- 변수에 대입 :=
+      
+    /*
+      if 조건1 then 실행문장1;
+      elsif 조건2 then 실행문장2;
+      else 실행문장3;
+      end if;
+    */
+    if v_genderNum in('1','3') then v_gender := '남';
+    else v_gender := '여';
+    end if;
+    
+    return v_gender;
+end func_gender;
+-- Function FUNC_GENDER이(가) 컴파일되었습니다.
+
+select func_gender('9710202234567')
+from dual;
+
+create or replace function func_age
+(p_jubun in varchar2)
+return number
+is
+    v_ageNum varchar2(1);
+    n_age    number(3);
+begin
+    v_ageNum := substr(p_jubun, 7, 1);
+    
+    if v_ageNum in('1','2') then n_age := extract(year from sysdate) - (to_number(substr(p_jubun, 1, 2)) + 1900) + 1;
+    else n_age := extract(year from sysdate) - (to_number(substr(p_jubun, 1, 2)) + 2000) + 1;
+    end if;
+    
+    return n_age;
+end func_age;
+-- Function FUNC_AGE이(가) 컴파일되었습니다.
+
+select func_age('9710202234567')
+from dual;
+
+select employee_id AS 사원번호
+     , first_name || ' ' || last_name AS 사원명
+     , jubun AS 주민번호
+     , func_gender(jubun) AS 성별
+     , func_age(jubun) AS 현재나이
+from employees;
